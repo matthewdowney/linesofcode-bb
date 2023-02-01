@@ -3,7 +3,16 @@
     [clojure.java.io :as io]
     [rewrite-clj.zip :as z]))
 
-(defrecord AnalyzerState [zloc fresh-line? lines whitespace multi-strs single-strs rich-comments comments])
+(defrecord AnalyzerState
+  [zloc        ; current zipper location
+   fresh-line? ; true iff the line is just whitespace so far
+
+   total-lines        ; total line count in the file
+   blank-lines        ; just whitespace
+   string-lines       ; exclusively occupied by strings (e.g. docstrings)
+   rich-comment-lines ; count of lines spanned by (comment ...) forms
+   comment-lines      ; count of lines exclusively occupied by ';...' comments
+   ])
 
 (defn next* [{:keys [zloc] :as azs}]
   (let [line (comp first z/position)
@@ -28,20 +37,20 @@
             zloc (z/find-next zloc z/next* (complement z/whitespace?))
             end (if zloc
                   (first (z/position zloc))
-                  (inc (:lines azs)))]
+                  (inc (:total-lines azs)))]
         (recur
           (if (= end start)
             (assoc azs :zloc zloc)
             (-> azs
                 (assoc :zloc zloc :fresh-line? true)
-                (update :whitespace + (- end start (if fresh-line? 0 1)))))))
+                (update :blank-lines + (- end start (if fresh-line? 0 1)))))))
 
       (z/whitespace? zloc)
       (recur (next* azs))
 
       (= tag :comment)
       (if fresh-line? ; the comment is on a line by itself
-        (recur (-> azs (update :comments inc) next*))
+        (recur (-> azs (update :comment-lines inc) next*))
         (recur (next* (assoc azs :fresh-line? true))))
 
       (= tag :multi-line)
@@ -49,23 +58,37 @@
             lines (+ (- end start) (if fresh-line? 1 0))]
         (recur
           (-> azs
-              (update :multi-strs + lines)
+              (update :string-lines + lines)
               (assoc :fresh-line? false)
               next*)))
+
+      (and fresh-line? (= tag :token) (z/sexpr-able? zloc) (string? (z/sexpr zloc)))
+      ; It's a string, if the next thing (except comments/whitespace) is on the
+      ; next line, then it's a string line
+      (let [next-zloc (z/right zloc)]
+        (if (or (z/end? next-zloc)
+                (> (first (z/position next-zloc))
+                   (first (z/position zloc))))
+          (recur
+            (-> azs
+                (update :string-lines inc)
+                (assoc :fresh-line? false)
+                next*))
+          (recur (next* azs))))
 
       (and (= tag :list) (= (first (z/sexpr zloc)) 'comment))
       (let [[start end] (start+end-row zloc)
             comment-lines (+ (- end start) (if fresh-line? 1 0))]
         (recur
           (-> azs
-              (update :rich-comments + comment-lines)
+              (update :rich-comment-lines + comment-lines)
               (assoc :zloc (z/right* zloc) :fresh-line? false))))
 
       :else (recur (next* (assoc azs :fresh-line? false))))))
 
 (defn analyze [zloc]
   (let [lines (-> zloc z/leftmost* z/up z/node meta :end-row)
-        ret (analyze* (->AnalyzerState (z/leftmost* zloc) true lines 0 0 0 0 0))]
+        ret (analyze* (->AnalyzerState (z/leftmost* zloc) true lines 0 0 0 0))]
     (dissoc ret :zloc :fresh-line?)))
 
 (defn analyze-str [s]
@@ -88,7 +111,7 @@
       a couple lines\"
       [x]
       (+ x x))")
-  ;=>> {:multi-strs 5 :whitespace 1 :lines 13 ...}
+  ;=>> {:string-lines 5 :blank-lines 1 :total-lines 13 ...}
 
   ; With five lines that are just comments, and four which are just whitespace
   (analyze-str
@@ -104,7 +127,7 @@
 
     ;; And a comment
     (+ 1 2 3)")
-  ;=>> {:whitespace 4 :comments 5 :lines 12 ...}
+  ;=>> {:blank-lines 4 :comment-lines 5 :total-lines 12 ...}
 
   ;; Rich comment forms
   (analyze-str
@@ -118,7 +141,34 @@
       (add 1 2) ;=> 3
       (add 2 5) ;=> 7
       )")
-  ;=>> {:rich-comments 5 :whitespace 3 :lines 10 ...}
+  ;=>> {:rich-comment-lines 5 :blank-lines 3 :total-lines 10 ...}
+
+  ;; Single line comments
+  (analyze-str
+    "(ns core
+       \"A namespace to do X\")
+
+    (defn add \"this string is on the same line as code\" [x y] (+ x y))
+
+    (defn subtract
+      \"Subtract y from x\"
+      [x y]
+      (- x y))
+
+    (defn multiply
+      \"Multiply
+        a
+      and
+        b\"
+      [a b]
+      (* a b))
+
+    \"weird case of a string by itself on the last line\"")
+  ;=>> {:total-lines 19,
+  ;     :blank-lines 4,
+  ;     :string-lines 7,
+  ;     :rich-comment-lines 0,
+  ;     :comment-lines 0}
   )
 
 ^:rct/test
@@ -128,9 +178,9 @@
     (z/of-file
       (io/resource "example.clj")
       {:track-position? true}))
-  ;=>> {:lines 29
-  ;     :whitespace 6
-  ;     :multi-strs 5
-  ;     :rich-comments 7
-  ;     :comments 2}
+  ;=>> {:total-lines 29
+  ;     :blank-lines 6
+  ;     :string-lines 6
+  ;     :rich-comment-lines 7
+  ;     :comment-lines 2}
   )
