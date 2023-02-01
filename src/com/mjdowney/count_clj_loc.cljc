@@ -19,29 +19,28 @@
     [row end-row]))
 
 (defn analyze* [{:keys [zloc fresh-line?] :as azs}]
-  (let [tag (z/tag zloc)
-        azs (if-not (z/end? zloc)
-              (update azs :lines max (-> zloc z/node meta :end-row))
-              azs)]
+  (let [tag (z/tag zloc)]
     (cond
       (z/end? zloc) azs
 
       (z/linebreak? zloc)
       (let [start (first (z/position zloc))
-            zloc' (z/find-next zloc z/next* (complement z/whitespace?))
-            end (first (z/position (or zloc' (z/rightmost* zloc))))]
+            zloc (z/find-next zloc z/next* (complement z/whitespace?))
+            end (if zloc
+                  (first (z/position zloc))
+                  (inc (:lines azs)))]
         (recur
           (if (= end start)
-            (assoc azs :zloc zloc')
+            (assoc azs :zloc zloc)
             (-> azs
-                (assoc :zloc zloc' :fresh-line? true)
+                (assoc :zloc zloc :fresh-line? true)
                 (update :whitespace + (- end start (if fresh-line? 0 1)))))))
 
       (z/whitespace? zloc)
       (recur (next* azs))
 
       (= tag :comment)
-      (if fresh-line?                                       ; the comment is on a line by itself
+      (if fresh-line? ; the comment is on a line by itself
         (recur (-> azs (update :comments inc) next*))
         (recur (next* (assoc azs :fresh-line? true))))
 
@@ -65,11 +64,12 @@
       :else (recur (next* (assoc azs :fresh-line? false))))))
 
 (defn analyze [zloc]
-  (let [ret (analyze* (->AnalyzerState zloc true 0 0 0 0 0 0))]
+  (let [lines (-> zloc z/leftmost* z/up z/node meta :end-row)
+        ret (analyze* (->AnalyzerState (z/leftmost* zloc) true lines 0 0 0 0 0))]
     (dissoc ret :zloc :fresh-line?)))
 
 (defn analyze-str [s]
-  (analyze (z/leftmost* (z/of-string s {:track-position? true}))))
+  (analyze (z/of-string s {:track-position? true})))
 
 ^:rct/test
 (comment
@@ -120,7 +120,6 @@
       )")
   ;=>> {:rich-comments 5 :whitespace 3 :lines 10 ...}
   )
-
 
 ^:rct/test
 (comment
