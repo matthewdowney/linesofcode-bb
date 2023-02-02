@@ -2,6 +2,7 @@
   "Count lines of Clojure code and the ratio of docs and comments vs code."
   (:require
     [clojure.java.io :as io]
+    [clojure.pprint :as pprint]
     [clojure.set :as set]
     [com.mjdowney.loc.analyze :as a]
     [rewrite-clj.zip :as z]))
@@ -71,6 +72,84 @@
         (update-vals count)
         (assoc :lines (:lines analysis)))))
 
+;; File helpers
+(defn path [^java.io.File f] (.getPath f))
+(defn dir? [^java.io.File f] (.isDirectory f))
+(defn ls   [^java.io.File f] (.listFiles f))
+
+(defn pattern->file-pred [regex]
+  (let [p (re-pattern regex)]
+    #(re-matches p (path %))))
+
+(defn analyze-all
+  [{:keys [f pred regex] :or {regex ".*(clj|cljs|cljc|bb)"}}]
+  {:pre [(some? f)]}
+  (let [pred (or pred (pattern->file-pred regex))
+        f (io/file f)
+        files (if (dir? f)
+                (->> (tree-seq dir? ls f) (remove dir?) (filter pred))
+                [f])]
+    (filter some?
+      (pmap
+        (fn [f]
+          (try
+            (assoc (analyze f) :file (path f))
+            (catch Exception e
+              (println "ERROR analyzing" f)
+              (.printStackTrace e)
+              nil)))
+        files))))
+
+(defn by-kind [data] (apply merge-with + (map #(dissoc % :file) data)))
+
+(defn summarize
+  [{:keys [f pred regex] :or {regex ".*(clj|cljs|cljc|bb)"} :as args}]
+  (let [{:keys [lines] :as data} (some-> (analyze-all (assoc args :regex regex))
+                                   seq
+                                   by-kind)
+        names {:comment-forms "Comment Forms"
+               :comments "Comments (;)"
+               :docstrings "Docstrings"
+               :loc "LOC"
+               :whitespace "Whitespace"
+               :comments-and-whitespace "Whitespace & ;;"
+               :lines "Total"}]
+    (->>
+      (for [[k v] data]
+        {"" (get names k)
+         "Lines" v
+         "%" (/ v lines)})
+      (sort-by #(get % "%"))
+      (map (fn [x] (update x "%" #(format "%.1f" (* 100.0 %)))))
+      pprint/print-table)))
+
+(defn breakdown
+  [{:keys [f pred regex percent?] :or {regex ".*(clj|cljs|cljc|bb)"} :as args}]
+  (let [data (analyze-all (assoc args :regex regex))
+        tbl
+        (->> data
+             (map
+               (fn [{:keys [file loc docstrings comment-forms lines]}]
+                 (let [?percent (if percent?
+                                  #(format "%.1f" (* (/ % lines) 100.0))
+                                  identity)]
+                   {"File" file
+                    "LOC" (?percent loc)
+                    "Docs" (?percent docstrings)
+                    "Comment Forms" (?percent comment-forms)
+                    "Lines" lines})))
+             (sort-by (comp - #(get % "Lines"))))
+        {:keys [loc docstrings comment-forms lines]}
+        (apply merge-with + (map #(dissoc % :file) data))
+        ?percent (if percent? #(format "%.1f" (* (/ % lines) 100.0)) identity)]
+    (pprint/print-table
+      (concat tbl
+        [{"File"          "SUM"
+          "LOC"           (?percent loc)
+          "Docs"          (?percent docstrings)
+          "Comment Forms" (?percent comment-forms)
+          "Lines"         lines}]))))
+
 (defn pprint
   "Analyze the file `f` and pprint it to stdout, prefixing each line with the
   way the line is categorized."
@@ -117,3 +196,10 @@
    :comments 5
    :comment-forms 11
    :docstrings 6})
+
+(comment
+  (summarize {:f (io/file "src/") :regex ".*cljc"})
+  (breakdown {:f (io/file "/home/matthew/blink/src")})
+  (breakdown {:f (io/file "/home/matthew/the-system/test") #_#_:percent? true})
+
+  )
