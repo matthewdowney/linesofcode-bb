@@ -27,64 +27,91 @@
   (let [{:keys [row end-row]} (meta (z/node zloc))]
     [row end-row]))
 
-(defn analyze* [{:keys [zloc fresh-line?] :as azs}]
-  (let [tag (z/tag zloc)]
-    (cond
-      (z/end? zloc) azs
+(defmulti -analyze
+  "Take the AnalyzerState and dispatch on the `rewrite-clj` tag for the node at
+  the current :zloc."
+  (fn [_azs zloc-tag] zloc-tag))
 
-      (z/linebreak? zloc)
-      (let [start (first (z/position zloc))
-            zloc (z/find-next zloc z/next* (complement z/whitespace?))
-            end (if zloc
-                  (first (z/position zloc))
-                  (inc (:total-lines azs)))]
-        (recur
-          (if (= end start)
-            (assoc azs :zloc zloc)
-            (-> azs
-                (assoc :zloc zloc :fresh-line? true)
-                (update :blank-lines + (- end start (if fresh-line? 0 1)))))))
+(defmethod -analyze :newline
+  [{:keys [zloc fresh-line?] :as azs} _]
+  (let [start (first (z/position zloc))
+        zloc (z/find-next zloc z/next* (complement z/whitespace?))
+        end (if zloc
+              (first (z/position zloc))
+              (inc (:total-lines azs)))]
+      (if (= end start)
+        (assoc azs :zloc zloc)
+        (-> azs
+            (assoc :zloc zloc :fresh-line? true)
+            (update :blank-lines + (- end start (if fresh-line? 0 1)))))))
 
-      (z/whitespace? zloc)
-      (recur (next* azs))
+;; For non-newline whitespace and commas, just skip over, for unmatched forms
+;; skip over, but tag the line with {:fresh-line? false}
+(defmethod -analyze :whitespace [azs _] (next* azs))
+(defmethod -analyze :comma      [azs _] (next* azs))
+(defmethod -analyze :default    [azs _] (next* (assoc azs :fresh-line? false)))
 
-      (= tag :comment)
-      (if fresh-line? ; the comment is on a line by itself
-        (recur (-> azs (update :comment-lines inc) next*))
-        (recur (next* (assoc azs :fresh-line? true))))
+(defmethod -analyze :comment
+  [{:keys [fresh-line?] :as azs} _]
+  (if fresh-line? ; the comment is on a line by itself
+    (-> azs (update :comment-lines inc) next*)
+    (next* (assoc azs :fresh-line? true))))
 
-      (= tag :multi-line)
-      (let [[start end] (start+end-row zloc)
-            lines (+ (- end start) (if fresh-line? 1 0))]
-        (recur
-          (-> azs
-              (update :string-lines + lines)
-              (assoc :fresh-line? false)
-              next*)))
+(defmethod -analyze :multi-line
+  [{:keys [zloc fresh-line?] :as azs} _]
+  (let [[start end] (start+end-row zloc)
+        lines (+ (- end start) (if fresh-line? 1 0))]
+    (-> azs
+        (update :string-lines + lines)
+        (assoc :fresh-line? false)
+        next*)))
 
-      (and fresh-line? (= tag :token) (z/sexpr-able? zloc) (string? (z/sexpr zloc)))
-      ; It's a string, if the next thing (except comments/whitespace) is on the
-      ; next line, then it's a string line
-      (let [next-zloc (z/right zloc)]
-        (if (or (z/end? next-zloc)
-                (> (first (z/position next-zloc))
-                   (first (z/position zloc))))
-          (recur
-            (-> azs
-                (update :string-lines inc)
-                (assoc :fresh-line? false)
-                next*))
-          (recur (next* azs))))
+(defmethod -analyze :list
+  [{:keys [zloc fresh-line?] :as azs} _]
+  (if (= (first (z/sexpr zloc)) 'comment) ; rich comment form
+    (let [[start end] (start+end-row zloc)
+          comment-lines (+ (- end start) (if fresh-line? 1 0))]
+      (-> azs
+          (update :rich-comment-lines + comment-lines)
+          (assoc :zloc (z/right* zloc) :fresh-line? false)))
+    (-analyze azs :default)))
 
-      (and (= tag :list) (= (first (z/sexpr zloc)) 'comment))
-      (let [[start end] (start+end-row zloc)
-            comment-lines (+ (- end start) (if fresh-line? 1 0))]
-        (recur
-          (-> azs
-              (update :rich-comment-lines + comment-lines)
-              (assoc :zloc (z/right* zloc) :fresh-line? false))))
+(defmacro spy [form] `(do #_(println ~(str form) "=>" ~form) ~form))
 
-      :else (recur (next* (assoc azs :fresh-line? false))))))
+(defn start-row [zloc] (first (z/position zloc)))
+(defn end-row [zloc] (:end-row (meta (z/node zloc))))
+(defn first-on-line? [zloc]
+  (let [prv (z/prev zloc)]
+    (or (not prv) (< (start-row prv) (start-row zloc)))))
+
+(defn last-on-line? [zloc]
+  (let [nxt (z/next zloc)]
+    (or (z/end? nxt) (< (start-row zloc) (start-row nxt)))))
+
+(def alone-on-line? (every-pred first-on-line? last-on-line?))
+
+(defmethod -analyze :token
+  [{:keys [zloc] :as azs} _]
+  (if (and (z/sexpr-able? zloc) (string? (z/sexpr zloc)) (alone-on-line? zloc))
+    ; It's a string, if the next thing (except comments/whitespace) is on the
+    ; next line, then it's a string line
+    (let [next-zloc (z/right zloc)
+          _ (spy (z/sexpr zloc))]
+      (if (or (z/end? next-zloc)
+              (> (first (z/position next-zloc))
+                 (first (z/position zloc))))
+        (-> azs
+            (update :string-lines inc)
+            (assoc :fresh-line? false)
+            next*)
+        (-analyze azs :default)))
+    (-analyze azs :default)))
+
+(defn analyze* [{:keys [zloc] :as azs}]
+  (if (z/sexpr-able? zloc) (spy (z/sexpr zloc))) ;; TODO
+  (if (z/end? zloc)
+    azs
+    (recur (-analyze azs (z/tag zloc)))))
 
 (defn analyze [zloc]
   (let [lines (-> zloc z/leftmost* z/up z/node meta :end-row)
@@ -171,6 +198,19 @@
   ;     :comment-lines 0}
   )
 
+(comment
+  (z/node
+    (z/next*
+      (z/leftmost* (z/of-string "[\"str\"]" {:track-position? true}))))
+
+  (analyze-str
+    "
+(defn x
+\"docstring\"
+[y]
+[\"a string\"])")
+  )
+
 ^:rct/test
 (comment
   ;; Analysis of the source file at resources/example.clj
@@ -178,9 +218,11 @@
     (z/of-file
       (io/resource "example.clj")
       {:track-position? true}))
-  ;=>> {:total-lines 29
-  ;     :blank-lines 6
-  ;     :string-lines 6
-  ;     :rich-comment-lines 7
-  ;     :comment-lines 2}
+  ;=>>
+  ^:matcho/strict
+  {:total-lines 33
+   :blank-lines 8
+   :string-lines 6
+   :rich-comment-lines 7
+   :comment-lines 2}
   )

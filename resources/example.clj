@@ -5,7 +5,7 @@
   string."
   (:require [foo.bar :as baz]))
 
-;; Main API
+;; Some function definitions
 
 (defn some-fn
   "Do something with the given
@@ -16,7 +16,11 @@
 (defn another-fn
   "Terser, one-line doc string"
   [x]
-  (dec x))
+  ["return string that isn't by itself" ; comment that isn't by itself
+
+   "one string" "two strings"
+
+   (dec x)])
 
 (comment
   ;; For example, a rich comment form
