@@ -1,5 +1,10 @@
+;; TODO: Clean up this NS for invocation via https://book.babashka.org/#_x
+;; TODO: Allow providing multiple paths (e.g. for src/ and test/ exclusively)
+;; TODO: Test runner
+;; TODO: Readme w/ bb one-liner, example of using analyze-all for custom stuff,
+;;       license
 (ns com.mjdowney.loc
-  "Count lines of Clojure code and the ratio of docs and comments vs code."
+  "Babashka script to count lines of Clojure code, docs, comments, and more."
   (:require
     [clojure.java.io :as io]
     [clojure.pprint :as pprint]
