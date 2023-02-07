@@ -1,16 +1,16 @@
-;; TODO: Clean up this NS for invocation via https://book.babashka.org/#_x
-;; TODO: Allow providing multiple paths (e.g. for src/ and test/ exclusively)
-;; TODO: Test runner
 ;; TODO: Readme w/ bb one-liner, example of using analyze-all for custom stuff,
 ;;       license
+;; TODO: Compare against lein-count
 (ns com.mjdowney.loc
   "Babashka script to count lines of Clojure code, docs, comments, and more."
+  {:org.babashka/cli {:coerce {:root [:string] :exclude [:string]}}}
   (:require
-    [clojure.java.io :as io]
-    [clojure.pprint :as pprint]
-    [clojure.set :as set]
-    [com.mjdowney.loc.analyze :as a]
-    [rewrite-clj.zip :as z]))
+   [clojure.java.io :as io]
+   [clojure.pprint :as pprint]
+   [clojure.set :as set]
+   [com.mjdowney.loc.analyze :as a]
+   [com.mjdowney.loc.fs :as f]
+   [rewrite-clj.zip :as z]))
 
 (defn analyze*
   "Like `analyze`, but returns sets of line numbers instead of counts."
@@ -77,41 +77,32 @@
         (update-vals count)
         (assoc :lines (:lines analysis)))))
 
-;; File helpers
-(defn path [^java.io.File f] (.getPath f))
-(defn dir? [^java.io.File f] (.isDirectory f))
-(defn ls   [^java.io.File f] (.listFiles f))
-
-(defn pattern->file-pred [regex]
-  (let [p (re-pattern regex)]
-    #(re-matches p (path %))))
-
-(defn analyze-all
-  [{:keys [f pred regex] :or {regex ".*(clj|cljs|cljc|bb)"}}]
-  {:pre [(some? f)]}
-  (let [pred (or pred (pattern->file-pred regex))
-        f (io/file f)
-        files (if (dir? f)
-                (->> (tree-seq dir? ls f) (remove dir?) (filter pred))
-                [f])]
-    (filter some?
-      (pmap
-        (fn [f]
-          (try
-            (assoc (analyze f) :file (path f))
-            (catch Exception e
-              (println "ERROR analyzing" f)
-              (.printStackTrace e)
-              nil)))
-        files))))
+(defn analyze-all [opts]
+  (f/pkeep
+    (fn [f]
+      (try
+        (assoc (analyze f) :file (f/path f))
+        (catch Exception e
+          (println "ERROR analyzing" f)
+          (.printStackTrace e)
+          nil)))
+    opts))
 
 (defn by-kind [data] (apply merge-with + (map #(dissoc % :file) data)))
 
 (defn summarize
-  [{:keys [f pred regex] :or {regex ".*(clj|cljs|cljc|bb)"} :as args}]
-  (let [{:keys [lines] :as data} (some-> (analyze-all (assoc args :regex regex))
-                                   seq
-                                   by-kind)
+  "Analyze all files under :root.
+
+  Options:
+    :root - A file, directory, or collection of the same.
+    :exclude - A collection of files or directories to exclude from the search.
+    :regex - A regex to match files against. Defaults to .+\\.(clj|cljs|cljc).
+    :pred - A predicate to match files against. Defaults to the :regex."
+  [opts]
+  (println "Analyzing files with options:")
+  (pprint/pprint opts)
+  (assert (contains? opts :root) "there is a root path to analyze from")
+  (let [{:keys [lines] :as data} (some-> (analyze-all opts) seq by-kind)
         names {:comment-forms "Comment Forms"
                :comments "Comments (;)"
                :docstrings "Docstrings"
@@ -129,13 +120,17 @@
       pprint/print-table)))
 
 (defn breakdown
-  [{:keys [f pred regex percent?] :or {regex ".*(clj|cljs|cljc|bb)"} :as args}]
-  (let [data (analyze-all (assoc args :regex regex))
+  "Like `summarize`, but with a per-file breakdown."
+  [opts]
+  (println "Analyzing files with options:")
+  (pprint/pprint opts)
+  (assert (contains? opts :root) "there is a root path to analyze from")
+  (let [data (analyze-all opts)
         tbl
         (->> data
              (map
                (fn [{:keys [file loc docstrings comment-forms lines]}]
-                 (let [?percent (if percent?
+                 (let [?percent (if (:percent? opts)
                                   #(format "%.1f" (* (/ % lines) 100.0))
                                   identity)]
                    {"File" file
@@ -146,7 +141,9 @@
              (sort-by (comp - #(get % "Lines"))))
         {:keys [loc docstrings comment-forms lines]}
         (apply merge-with + (map #(dissoc % :file) data))
-        ?percent (if percent? #(format "%.1f" (* (/ % lines) 100.0)) identity)]
+        ?percent (if (:percent? opts)
+                   #(format "%.1f%%" (* (/ % lines) 100.0))
+                   identity)]
     (pprint/print-table
       (concat tbl
         [{"File"          "SUM"
@@ -180,10 +177,18 @@
 ^:rct/test
 (comment
   ;; For example...
-  (def f (io/resource "example.clj"))
+  (def f (io/resource "example.edn"))
 
   ; You can also pprint the file to see how each line is being counted
   (pprint f)
+  ; COMMENT     1 ; Some namespace
+  ; CODE        2 (ns example
+  ; DOC         3   "Namespace
+  ; DOC         4   documentation
+  ; DOC         5   string."
+  ; CODE        6   (:require [foo.bar :as baz] #_[partially.commented :as not-a-whole-line]))
+  ; WHITESP     7
+  ; ...
 
   ; Every line is accounted for
   (= (->> (dissoc (analyze f) :lines) vals (reduce +))
@@ -203,8 +208,8 @@
    :docstrings 6})
 
 (comment
-  (summarize {:f (io/file "src/") :regex ".*cljc"})
-  (breakdown {:f (io/file "/home/matthew/blink/src")})
-  (breakdown {:f (io/file "/home/matthew/the-system/test") #_#_:percent? true})
+  ;; E.g. run on this project
+  (summarize {:root (io/file "src/")})
 
+  (breakdown {:root (io/file "src/")})
   )
