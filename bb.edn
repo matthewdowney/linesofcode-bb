@@ -1,7 +1,12 @@
 {:paths ["src" "resources"]
- :deps  {io.github.matthewdowney/rich-comment-tests
-         {:git/tag "v1.0.0" :git/sha "73b0863"}}
- :pods  {clj-kondo/clj-kondo     {:version "2023.01.20"}}
- :tasks {:requires ([pod.borkdude.clj-kondo :as clj-kondo])
-         lint      (clj-kondo/print! (clj-kondo/run! {:lint ["src"]}))
-         test      (comment "TODO")}}
+ :deps  {}
+ :pods  {clj-kondo/clj-kondo {:version "2023.01.20"}}
+ :tasks {lint
+         {:requires ([pod.borkdude.clj-kondo :as clj-kondo])
+          :task (clj-kondo/print! (clj-kondo/run! {:lint ["src"]}))}
+
+         test
+         {:extra-deps {io.github.matthewdowney/rich-comment-tests
+                       {:git/tag "v1.0.1" :git/sha "0f401d8"}}
+          :requires ([com.mjdowney.rich-comment-tests.test-runner :as rct])
+          :task (rct/run-tests-in-file-tree! {:dirs #{"src"}})}}}
