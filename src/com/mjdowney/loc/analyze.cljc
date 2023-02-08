@@ -22,8 +22,9 @@
 (defn comment-form?
   "Is `zloc` a `(comment ...)` form?"
   [zloc]
-  (when-let [s (when (z/sexpr-able? zloc) (z/sexpr zloc))]
-    (and (seqable? s) (= (first s) 'comment))))
+  (if (= (z/tag zloc) :meta)
+    (recur (-> zloc z/down z/right))
+    (and (= (z/tag zloc) :list) (= (z/string (z/down zloc)) "comment"))))
 
 (defn string-token?
   "Is `zloc` a string literal?"
@@ -77,7 +78,7 @@
         pos   (fn [xs id & ps] (update-in xs [:inclusive id] into ps))
         tally (fn [xs id s]    (update-in xs [:inclusive id s] (fnil inc 0)))]
     (loop [zl (z/leftmost* zl)
-           xs {:lines (-> zl z/root meta :end-row)
+           xs {:lines (or (-> zl z/root meta :end-row) 0)
                :exclusive {:comment-form #{} :uneval #{} :multi-line #{}}
                :inclusive {:comment #{} :string {} :other #{}}}]
       (if (z/end? zl)
@@ -108,8 +109,8 @@
             ; lines with multiple strings
             (string-token? zl)  (recur (z/next* zl) (tally xs :string s))
 
-            ; Ignore whitespace
-            (z/whitespace? zl)  (recur (z/next* zl) xs)
+            ; Ignore whitespace + the top-level :forms zipper
+            (or (z/whitespace? zl) (= tag :forms)) (recur (z/next* zl) xs)
 
             ; Tally start / end lines for all other forms under :other
             :else               (recur (z/next* zl) (pos xs :other s e))))))))

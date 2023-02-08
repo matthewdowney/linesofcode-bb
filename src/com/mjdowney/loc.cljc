@@ -207,6 +207,7 @@
 (comment
   ;; E.g. run on this project
   (summarize {:root (io/file "src/")})
-
   (breakdown {:root (io/file "src/")})
-  )
+
+  ;; Or some other thing that you have cloned
+  (breakdown {:root (io/file "/home/matthew/babashka/src")}))
