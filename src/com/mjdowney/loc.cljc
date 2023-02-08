@@ -1,6 +1,3 @@
-;; TODO: Readme w/ bb one-liner, example of using analyze-all for custom stuff,
-;;       license
-;; TODO: Compare against lein-count
 (ns com.mjdowney.loc
   "Babashka script to count lines of Clojure code, docs, comments, and more."
   {:org.babashka/cli {:coerce {:root [:string] :exclude [:string]}}}
