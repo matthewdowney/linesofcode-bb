@@ -61,7 +61,8 @@ Analyzing files with options:
 
 ### Example: as a babashka task
 
-For example, in [rich-comment-tests]() I have the following in my bb.edn:
+For example, in [rich-comment-tests](https://github.com/matthewdowney/rich-comment-tests) 
+I have the following in my bb.edn:
 ```clojure
 {:tasks
  {loc {:extra-deps {io.github.matthewdowney/linesofcode-bb {:git/tag "v0.0.1" :git/sha "4dbee31"}}
