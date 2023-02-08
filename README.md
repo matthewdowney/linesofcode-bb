@@ -20,8 +20,7 @@ working directory, by file:
 
 ```bash
 bb -Sdeps '{:deps {io.github.matthewdowney/linesofcode-bb {:git/tag "v0.0.1" :git/sha "4dbee31"}}}' \
-   -x com.mjdowney.loc/breakdown \ 
-   --root "src/" "test/"
+   -x com.mjdowney.loc/breakdown --root "src/" "test/"
 ```
 
 ```
