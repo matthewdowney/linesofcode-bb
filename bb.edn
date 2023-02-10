@@ -7,6 +7,6 @@
 
          test
          {:extra-deps {io.github.matthewdowney/rich-comment-tests
-                       {:git/tag "v1.0.1" :git/sha "0f401d8"}}
+                       {:git/tag "v1.0.2" :git/sha "4501366"}}
           :requires ([com.mjdowney.rich-comment-tests.test-runner :as rct])
           :task (rct/run-tests-in-file-tree! {:dirs #{"src"}})}}}
