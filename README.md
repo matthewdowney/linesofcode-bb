@@ -10,7 +10,7 @@ present on each source file line.
 ### Coordinates
 
 ```clojure
-io.github.matthewdowney/linesofcode-bb {:git/tag "v0.0.1" :git/sha "4dbee31"}
+io.github.matthewdowney/linesofcode-bb {:git/tag "v0.0.2" :git/sha "12e4f52"}
 ```
 
 ### Example: as a one-liner
@@ -19,7 +19,7 @@ To analyze the lines of code under the `src` and `test` directories of the
 working directory, by file:
 
 ```bash
-bb -Sdeps '{:deps {io.github.matthewdowney/linesofcode-bb {:git/tag "v0.0.1" :git/sha "4dbee31"}}}' \
+bb -Sdeps '{:deps {io.github.matthewdowney/linesofcode-bb {:git/tag "v0.0.2" :git/sha "12e4f52"}}}' \
    -x com.mjdowney.loc/breakdown --root "src/" "test/"
 ```
 
@@ -39,7 +39,7 @@ Analyzing files with options:
 <summary>Or for a project-wide summary, without individual files</summary>
 
 ```bash
-bb -Sdeps '{:deps {io.github.matthewdowney/linesofcode-bb {:git/tag "v0.0.1" :git/sha "4dbee31"}}}' \
+bb -Sdeps '{:deps {io.github.matthewdowney/linesofcode-bb {:git/tag "v0.0.2" :git/sha "12e4f52"}}}' \
    -x com.mjdowney.loc/summarize \
    --root "src/" "test/"
 ```
@@ -65,7 +65,7 @@ For example, in [rich-comment-tests](https://github.com/matthewdowney/rich-comme
 I have the following in my bb.edn:
 ```clojure
 {:tasks
- {loc {:extra-deps {io.github.matthewdowney/linesofcode-bb {:git/tag "v0.0.1" :git/sha "4dbee31"}}
+ {loc {:extra-deps {io.github.matthewdowney/linesofcode-bb {:git/tag "v0.0.2" :git/sha "12e4f52"}}
        :requires   ([com.mjdowney.loc :as loc])
        :task       (loc/breakdown {:root ["src" "bb" "test"] :exclude ["src/dev"]})}}}
 ```
@@ -94,7 +94,7 @@ Analyzing files with options:
 
 ```clojure
 (require '[babashka.deps :as deps])
-(deps/add-deps '{:deps {io.github.matthewdowney/linesofcode-bb {:git/tag "v0.0.1" :git/sha "4dbee31"}}})
+(deps/add-deps '{:deps {io.github.matthewdowney/linesofcode-bb {:git/tag "v0.0.2" :git/sha "12e4f52"}}})
 
 (require '[com.mjdowney.loc :as loc])
 (loc/breakdown {:root ["/home/some-project"] :exclude ["target" ".git"]})
